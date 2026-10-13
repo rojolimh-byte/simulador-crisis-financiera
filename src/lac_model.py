@@ -5,31 +5,14 @@ Calibración ilustrativa basada en BIS Consolidated Banking Statistics e IMF FSI
 """
 
 import networkx as nx
+from src.data_loader import load_capitals, load_exposures
 
 # Países LAC incluidos en la red
 COUNTRIES = ["Brasil", "México", "Argentina", "Chile", "Colombia", "Perú"]
 
-# Capital de absorción (proxy: reservas / deuda externa corto plazo, escala 0-100)
-# Calibración ilustrativa basada en IMF FSI y datos de reservas
-CAPITAL = {
-    "Brasil": 75,
-    "México": 70,
-    "Argentina": 30,
-    "Chile": 65,
-    "Colombia": 50,
-    "Perú": 72,
-}
-
-# Matriz de exposiciones (quién le debe a quién, escala relativa)
-# Basada en BIS CBS: exposición del país fila hacia el país columna
-EXPOSURES = {
-    "Brasil":    {"México": 10, "Argentina": 15, "Chile": 8, "Colombia": 6, "Perú": 5},
-    "México":    {"Brasil": 12, "Argentina": 5, "Chile": 6, "Colombia": 7, "Perú": 4},
-    "Argentina": {"Brasil": 25, "México": 8, "Chile": 5, "Colombia": 4, "Perú": 3},
-    "Chile":     {"Brasil": 15, "México": 7, "Argentina": 6, "Colombia": 5, "Perú": 8},
-    "Colombia":  {"Brasil": 10, "México": 9, "Argentina": 5, "Chile": 6, "Perú": 4},
-    "Perú":      {"Brasil": 12, "México": 6, "Argentina": 4, "Chile": 10, "Colombia": 5},
-}
+# Capital y exposiciones: se cargan desde data_loader (CSV real si existe, sino ilustrativo)
+CAPITAL = load_capitals()
+EXPOSURES = load_exposures()
 
 # Definición de shocks: a qué países golpea y con qué intensidad (0-100)
 SHOCKS = {
