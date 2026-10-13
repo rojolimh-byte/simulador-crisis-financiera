@@ -3,8 +3,8 @@ Cargador de datos para el simulador LAC.
 Si existen CSVs en /data, usa datos reales; si no, usa calibración ilustrativa.
 
 CSVs esperados:
-- data/capitals.csv   -> columnas: pais,capital_ratio  (capital regulatorio / RWA, en %)
-- data/exposures.csv  -> columnas: origen,destino,exposicion  (USD millones)
+- data/capitals.csv   -> columnas: pais,capital  ó  pais,capital_ratio
+- data/exposures.csv  -> columnas: origen,destino,exposicion
 """
 
 import os
@@ -12,7 +12,6 @@ import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
-# Fallback: calibración ilustrativa (misma que usa lac_model.py)
 FALLBACK_CAPITAL = {
     "Brasil": 75, "México": 70, "Argentina": 30,
     "Chile": 65, "Colombia": 50, "Perú": 72,
@@ -29,11 +28,12 @@ FALLBACK_EXPOSURES = {
 
 
 def load_capitals():
-    """Devuelve dict {pais: capital_ratio}. Usa CSV si existe, sino fallback."""
+    """Devuelve dict {pais: capital}. Acepta 'capital' o 'capital_ratio'."""
     path = os.path.join(DATA_DIR, "capitals.csv")
     if os.path.exists(path):
         df = pd.read_csv(path)
-        return dict(zip(df["pais"], df["capital_ratio"]))
+        col = "capital_ratio" if "capital_ratio" in df.columns else "capital"
+        return dict(zip(df["pais"], df[col]))
     return FALLBACK_CAPITAL
 
 
@@ -54,5 +54,3 @@ def get_data_source():
     has_csv = os.path.exists(os.path.join(DATA_DIR, "capitals.csv")) and \
               os.path.exists(os.path.join(DATA_DIR, "exposures.csv"))
     return "datos reales (CSV)" if has_csv else "calibración ilustrativa"
-
-
