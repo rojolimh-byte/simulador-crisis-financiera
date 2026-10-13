@@ -1,6 +1,10 @@
 """
 Cargador de datos para el simulador LAC.
 Si existen CSVs en /data, usa datos reales; si no, usa calibración ilustrativa.
+
+CSVs esperados:
+- data/capitals.csv   -> columnas: pais,capital  ó  pais,capital_ratio
+- data/exposures.csv  -> columnas: origen,destino,exposicion
 """
 
 import os
@@ -8,6 +12,7 @@ import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
+# Fallback: calibración ilustrativa (misma que usa lac_model.py)
 FALLBACK_CAPITAL = {
     "Brasil": 75, "México": 70, "Argentina": 30,
     "Chile": 65, "Colombia": 50, "Perú": 72,
@@ -21,6 +26,9 @@ FALLBACK_EXPOSURES = {
     "Colombia":  {"Brasil": 10, "México": 9, "Argentina": 5, "Chile": 6, "Perú": 4},
     "Perú":      {"Brasil": 12, "México": 6, "Argentina": 4, "Chile": 10, "Colombia": 5},
 }
+
+# Los 6 países del modelo (mismos que usa lac_model.py)
+TODOS_LOS_PAISES = {"Brasil", "México", "Argentina", "Chile", "Colombia", "Perú"}
 
 
 def _normalizar_columnas(df):
@@ -59,6 +67,11 @@ def load_exposures():
         exposures = {}
         for _, row in df.iterrows():
             exposures.setdefault(row["origen"], {})[row["destino"]] = row["exposicion"]
+
+        # Completar países sin exposiciones salientes (no reportan al BIS)
+        for pais in TODOS_LOS_PAISES:
+            if pais not in exposures:
+                exposures[pais] = {}
         return exposures
     return FALLBACK_EXPOSURES
 
