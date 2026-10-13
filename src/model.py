@@ -29,10 +29,10 @@ class FinancialNetwork:
 
         self.banks = {}
         for i in range(n_banks):
-            capital = random.uniform(80, 120)
+            capital = random.uniform(30, 60)
             exposures = {}
             for j in self.G.neighbors(i):
-                exposures[j] = random.uniform(5, 20)
+                exposures[j] = random.uniform(20, 50)
             self.banks[i] = Bank(i, capital, exposures)
 
         self.banks[0].capital -= self.shock_size * 100
