@@ -1,5 +1,4 @@
-mesa==2.1.4
-networkx==3.1
-streamlit==1.31.0
-pandas==2.1.4
-plotly==5.18.0
+streamlit>=1.40
+pandas>=2.2
+networkx>=3.3
+plotly>=5.24
