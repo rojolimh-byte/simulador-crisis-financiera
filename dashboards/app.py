@@ -5,11 +5,12 @@ Dashboard de Streamlit: riesgo sistémico y contagio financiero en América Lati
 import streamlit as st
 import networkx as nx
 import plotly.graph_objects as go
+import pandas as pd
 import sys
 import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from src.lac_model import LACNetwork, SHOCKS, COUNTRIES
+from src.lac_model import LACNetwork, SHOCKS, COUNTRIES, run_monte_carlo
 
 st.set_page_config(page_title="Riesgo Sistémico LAC", layout="wide")
 st.title("🌎 Simulador de Riesgo Sistémico en América Latina")
@@ -84,3 +85,26 @@ if st.sidebar.button("Ejecutar simulación"):
         c = model.countries[name]
         status = "🔴 En crisis" if c.in_crisis else "🟢 Sano"
         st.write(f"**{name}**: {status} — capital restante: {c.capital:.0f}")
+
+    # --- Monte Carlo ---
+    st.subheader("🎲 Análisis Monte Carlo")
+    n_sims = st.slider("Cantidad de simulaciones", 50, 500, 200, step=50)
+
+    if st.button("Ejecutar Monte Carlo"):
+        with st.spinner(f"Corriendo {n_sims} simulaciones..."):
+            resumen_mc = run_monte_carlo(
+                n_sims=n_sims,
+                shock_name=shock_name,
+                shock_intensity=shock_intensity,
+                bailout=bailout,
+            )
+
+        st.write(f"**Distribución de resultados en {n_sims} simulaciones**")
+        st.bar_chart(resumen_mc)
+        st.dataframe(resumen_mc.style.format("{:.1f}"))
+        st.info(
+            "**Cómo leerlo:**\n"
+            "- **P5 (pesimista):** en el 5% de los escenarios más malos, el valor fue igual o peor\n"
+            "- **P50 (mediano):** el escenario típico (mediana)\n"
+            "- **P95 (optimista):** en el 95% de los escenarios, el valor fue igual o mejor"
+        )
