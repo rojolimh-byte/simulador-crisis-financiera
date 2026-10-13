@@ -2,8 +2,11 @@
 Simulador de riesgo sistémico y contagio financiero en América Latina.
 Nodos = países. Shocks = eventos globales (Fed, commodities, guerra, clima).
 Calibración ilustrativa basada en BIS Consolidated Banking Statistics e IMF FSI.
+Incluye análisis Monte Carlo (múltiples corridas con aleatoriedad).
 """
 
+import numpy as np
+import pandas as pd
 import networkx as nx
 from src.data_loader import load_capitals, load_exposures
 
@@ -48,7 +51,10 @@ class Country:
 class LACNetwork:
     """Red de países LAC con contagio financiero y shocks globales."""
 
-    def __init__(self, shock_name, shock_intensity=1.0, bailout=False):
+    def __init__(self, shock_name, shock_intensity=1.0, bailout=False, seed=None):
+        if seed is not None:
+            np.random.seed(seed)
+
         self.shock_name = shock_name
         self.shock_intensity = shock_intensity
         self.bailout = bailout
@@ -57,10 +63,19 @@ class LACNetwork:
         for name in COUNTRIES:
             self.countries[name] = Country(name, CAPITAL[name], EXPOSURES[name])
 
-        # Aplicar shock inicial
+        # Aplicar shock inicial (con ruido estocástico opcional)
         shock = SHOCKS[shock_name]
         for country_name, base_impact in shock["impacto"].items():
-            self.countries[country_name].capital -= base_impact * shock_intensity
+            # Ruido: multiplicador normal truncado (media 1, desvío 0.3)
+            ruido = np.random.normal(loc=1.0, scale=0.3)
+            ruido = max(0.2, min(2.0, ruido))
+            impacto_ajustado = base_impact * shock_intensity * ruido
+            self.countries[country_name].capital -= impacto_ajustado
+
+        # Rescate regional: inyección de capital si está activado
+        if bailout:
+            for c in self.countries.values():
+                c.capital += 15
 
     def step(self):
         """Un paso: detectar crisis y propagar pérdidas a acreedores."""
@@ -83,6 +98,13 @@ class LACNetwork:
                 break
         return self.get_state()
 
+    def get_summary(self):
+        """Resumen de una corrida: nro de países en crisis y capital total restante."""
+        state = self.get_state()
+        n_crisis = sum(1 for v in state.values() if v == "en crisis")
+        total_capital = sum(c.capital for c in self.countries.values())
+        return {"paises_en_crisis": n_crisis, "capital_total": round(total_capital, 1)}
+
     def build_graph(self):
         """Construye el grafo para visualización."""
         G = nx.DiGraph()
@@ -92,3 +114,31 @@ class LACNetwork:
             for target, amount in targets.items():
                 G.add_edge(source, target, weight=amount)
         return G
+
+
+def run_monte_carlo(n_sims=200, shock_name="Suba de tasas de la Fed",
+                    shock_intensity=1.0, bailout=False):
+    """
+    Corre n_sims simulaciones independientes.
+    Cada corrida crea una nueva LACNetwork (que ya incluye ruido estocástico
+    en el impacto del shock), la ejecuta y registra el resumen.
+    Devuelve DataFrame con P5/P50/P95 de países en crisis y capital total.
+    """
+    resultados = []
+    for _ in range(n_sims):
+        net = LACNetwork(
+            shock_name=shock_name,
+            shock_intensity=shock_intensity,
+            bailout=bailout,
+            seed=None,  # sin seed fijo -> aleatoriedad real en cada corrida
+        )
+        net.run()
+        resultados.append(net.get_summary())
+
+    df = pd.DataFrame(resultados)
+    resumen = pd.DataFrame({
+        "P5 (pesimista)": df.quantile(0.05),
+        "P50 (mediano)": df.quantile(0.50),
+        "P95 (optimista)": df.quantile(0.95),
+    })
+    return resumen
