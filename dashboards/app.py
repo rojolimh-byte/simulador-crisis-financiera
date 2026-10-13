@@ -1,5 +1,5 @@
 """
-Dashboard de Streamlit para el simulador de contagio financiero.
+Dashboard de Streamlit: riesgo sistémico y contagio financiero en América Latina.
 """
 
 import streamlit as st
@@ -9,25 +9,23 @@ import sys
 import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from src.model import FinancialNetwork
+from src.lac_model import LACNetwork, SHOCKS, COUNTRIES
 
-st.set_page_config(page_title="Simulador de Crisis Financiera", layout="wide")
-st.title("🏦 Simulador de Contagio Financiero")
-st.markdown("Modelo de agentes: una red de bancos donde un shock inicial puede desencadenar una crisis sistémica.")
+st.set_page_config(page_title="Riesgo Sistémico LAC", layout="wide")
+st.title("🌎 Simulador de Riesgo Sistémico en América Latina")
+st.markdown("Modelo de contagio financiero entre países LAC, con shocks globales (Fed, commodities, guerra, clima).")
 
-# Sidebar de parámetros
-st.sidebar.header("Parámetros")
-n_banks = st.sidebar.slider("Cantidad de bancos", 5, 50, 20)
-shock_size = st.sidebar.slider("Magnitud del shock inicial", 0.1, 1.0, 0.3, 0.05)
-bailout = st.sidebar.checkbox("Activar rescate estatal (bailout)")
+st.sidebar.header("Escenario de shock")
+shock_name = st.sidebar.selectbox("Tipo de shock", list(SHOCKS.keys()))
+st.sidebar.info(SHOCKS[shock_name]["descripcion"])
+shock_intensity = st.sidebar.slider("Intensidad del shock", 0.5, 2.0, 1.0, 0.1)
+bailout = st.sidebar.checkbox("Activar rescate regional (swap lines / bailout)")
 
 if st.sidebar.button("Ejecutar simulación"):
-    model = FinancialNetwork(n_banks=n_banks, shock_size=shock_size, bailout=bailout)
+    model = LACNetwork(shock_name=shock_name, shock_intensity=shock_intensity, bailout=bailout)
     states = model.run()
-
-    # Construir visualización de la red
-    G = model.G
-    pos = nx.spring_layout(G, seed=42)
+    G = model.build_graph()
+    pos = nx.spring_layout(G, seed=42, k=2)
 
     edge_x, edge_y = [], []
     for edge in G.edges():
@@ -38,7 +36,7 @@ if st.sidebar.button("Ejecutar simulación"):
 
     edge_trace = go.Scatter(
         x=edge_x, y=edge_y, mode="lines",
-        line=dict(width=1, color="#888"),
+        line=dict(width=1, color="#aaa"),
         hoverinfo="none"
     )
 
@@ -47,14 +45,14 @@ if st.sidebar.button("Ejecutar simulación"):
         x, y = pos[node]
         node_x.append(x)
         node_y.append(y)
-        alive = states[node] == "alive"
-        node_color.append("green" if alive else "red")
-        node_text.append(f"Banco {node}: {'Sano' if alive else 'Quebrado'}")
+        in_crisis = states[node] == "en crisis"
+        node_color.append("red" if in_crisis else "green")
+        node_text.append(f"{node}: {'EN CRISIS' if in_crisis else 'Sano'}")
 
     node_trace = go.Scatter(
         x=node_x, y=node_y, mode="markers+text",
-        marker=dict(size=20, color=node_color, line=dict(width=2, color="white")),
-        text=[str(n) for n in G.nodes()],
+        marker=dict(size=35, color=node_color, line=dict(width=2, color="white")),
+        text=list(G.nodes()),
         textposition="top center",
         hovertext=node_text,
         hoverinfo="text"
@@ -62,7 +60,7 @@ if st.sidebar.button("Ejecutar simulación"):
 
     fig = go.Figure(data=[edge_trace, node_trace])
     fig.update_layout(
-        title="Red bancaria después del contagio",
+        title=f"Red financiera LAC después de: {shock_name}",
         showlegend=False,
         hovermode="closest",
         margin=dict(b=0, l=0, r=0, t=40),
@@ -72,16 +70,17 @@ if st.sidebar.button("Ejecutar simulación"):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    alive_count = sum(1 for s in states.values() if s == "alive")
-    dead_count = n_banks - alive_count
-    st.metric("Bancos sanos", alive_count)
-    st.metric("Bancos quebrados", dead_count)
+    crisis_count = sum(1 for s in states.values() if s == "en crisis")
+    st.metric("Países en crisis", f"{crisis_count} / {len(COUNTRIES)}")
 
-    if dead_count > n_banks / 2:
-        st.error("⚠️ Crisis sistémica: más de la mitad de los bancos quebraron.")
-    elif dead_count > 0:
-        st.warning("Contagio parcial: algunos bancos quebraron.")
+    crisis_countries = [n for n, s in states.items() if s == "en crisis"]
+    if crisis_countries:
+        st.error(f"⚠️ Países en crisis: {', '.join(crisis_countries)}")
     else:
-        st.success("Sistema estable: ningún banco quebró.")
+        st.success("Ningún país entró en crisis con este shock.")
 
-        
+    st.subheader("Detalle por país")
+    for name in COUNTRIES:
+        c = model.countries[name]
+        status = "🔴 En crisis" if c.in_crisis else "🟢 Sano"
+        st.write(f"**{name}**: {status} — capital restante: {c.capital:.0f}")
