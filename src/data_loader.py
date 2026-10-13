@@ -12,6 +12,7 @@ import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
+# Fallback: calibración ilustrativa (misma que usa lac_model.py)
 FALLBACK_CAPITAL = {
     "Brasil": 75, "México": 70, "Argentina": 30,
     "Chile": 65, "Colombia": 50, "Perú": 72,
