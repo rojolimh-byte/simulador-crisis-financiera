@@ -19,7 +19,7 @@ st.markdown("Modelo de contagio financiero entre países LAC, con shocks globale
 st.sidebar.header("Escenario de shock")
 shock_name = st.sidebar.selectbox("Tipo de shock", list(SHOCKS.keys()))
 st.sidebar.info(SHOCKS[shock_name]["descripcion"])
-shock_intensity = st.sidebar.slider("Intensidad del shock", 0.5, 2.0, 1.0, 0.1)
+shock_intensity = st.sidebar.slider("Intensidad del shock", 0.5, 3.0, 1.0, 0.1)
 bailout = st.sidebar.checkbox("Activar rescate regional (swap lines / bailout)")
 
 # Ejecutar simulación base y guardar en session_state
