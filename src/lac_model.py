@@ -3,10 +3,12 @@ Simulador de riesgo sistémico y contagio financiero en América Latina.
 Nodos = países. Shocks = eventos globales (Fed, commodities, guerra, clima).
 
 Calibración basada en datos:
-- Capital: ratios reales FMI FSI (capital/activos, %)
-- Umbral de crisis: 8% (mínimo regulatorio Basilea)
+- Capital: ratios reales FMI FSI — capital regulatorio sobre activos ponderados por riesgo (CAR, % RWA)
+- Umbral de crisis: 8% (mínimo regulatorio Basilea sobre RWA)
 - Shock directo: 1-4.5 pp, consistente con estrés severo (Fed/ECB/IMF: 2.5-4 pp)
-- Contagio: exposición BIS normalizada por PIB del receptor (FMI WEO 2024)
+- Vulnerabilidad diferenciada: multiplicador basado en spreads EMBI (CEPAL, abr-2024)
+- Contagio por cartera común: países sistémicos propagan más al entrar en crisis
+- Contagio bilateral: exposiciones BIS normalizadas por PIB del receptor (FMI WEO 2024)
 Incluye análisis Monte Carlo (múltiples corridas con aleatoriedad).
 """
 
@@ -23,7 +25,6 @@ CAPITAL = load_capitals()
 EXPOSURES = load_exposures()
 
 # PIB nominal 2024, miles de millones USD (FMI WEO)
-# Se usa para normalizar exposiciones (millones USD -> % del PIB)
 GDP_BUSD = {
     "Brasil": 2170.0,
     "México": 1830.0,
@@ -36,13 +37,33 @@ GDP_BUSD = {
 # Umbral de crisis: mínimo regulatorio de capital (Basilea)
 CRISIS_THRESHOLD = 8.0
 
-# Coeficiente de transmisión del contagio:
-# fracción de la exposición (como % del PIB) que se traduce en pérdida
-# de capital (pp). Es un parámetro de calibración explícito.
+# Coeficiente de transmisión del contagio bilateral
 CONTAGION_PASSTHROUGH = 1.0
 
-# Shocks: impacto directo en puntos porcentuales del capital ratio.
-# Calibrado con evidencia de stress tests: severo = 2.5-4 pp (Fed, ECB, IMF).
+# Vulnerabilidad macro diferenciada: multiplicador sobre el shock directo,
+# derivado de los spreads EMBI (CEPAL, abr-2024):
+# Argentina 1215bp, México 309, Colombia 303, Brasil 202, Perú 160, Chile 121.
+VULNERABILIDAD_MACRO = {
+    "Argentina": 3.0,
+    "México": 1.5,
+    "Colombia": 1.5,
+    "Brasil": 1.2,
+    "Perú": 1.0,
+    "Chile": 1.0,
+}
+
+# Contagio por cartera común: golpe (pp de capital) al resto de la región
+# cuando este país entra en crisis. Basado en evidencia de spillovers.
+PORTFOLIO_CONTAGION_PP = {
+    "Brasil": 1.5,
+    "México": 1.5,
+    "Argentina": 2.0,
+    "Chile": 0.5,
+    "Perú": 0.5,
+    "Colombia": 0.5,
+}
+
+# Shocks: impacto directo base en puntos porcentuales del CAR.
 SHOCKS = {
     "Suba de tasas de la Fed": {
         "descripcion": "Endurecimiento global: fuga de capitales, devaluación, spreads más altos",
@@ -68,7 +89,7 @@ class Country:
 
     def __init__(self, name, capital, exposures):
         self.name = name
-        self.capital = capital          # capital ratio en %
+        self.capital = capital          # capital regulatorio (CAR, % RWA)
         self.exposures = exposures      # dict {destino: exposicion en millones USD}
         self.in_crisis = False
 
@@ -88,13 +109,13 @@ class LACNetwork:
         for name in COUNTRIES:
             self.countries[name] = Country(name, CAPITAL[name], EXPOSURES.get(name, {}))
 
-        # Aplicar shock inicial: impacto en pp, con ruido estocástico
+        # Shock directo: impacto base × vulnerabilidad macro × intensidad × ruido
         shock = SHOCKS[shock_name]
         for country_name, base_impact in shock["impacto"].items():
-            # Ruido: multiplicador normal truncado (media 1, desvío 0.3)
             ruido = np.random.normal(loc=1.0, scale=0.3)
             ruido = max(0.2, min(2.0, ruido))
-            impacto_pp = base_impact * shock_intensity * ruido
+            vulnerabilidad = VULNERABILIDAD_MACRO.get(country_name, 1.0)
+            impacto_pp = base_impact * vulnerabilidad * shock_intensity * ruido
             self.countries[country_name].capital -= impacto_pp
 
         # Rescate regional: inyección de 2 pp de capital a todos
@@ -103,28 +124,34 @@ class LACNetwork:
                 c.capital += 2.0
 
     def _contagion_loss_pp(self, exposure_musd, destino):
-        """
-        Convierte exposición (millones USD) en pérdida de capital (pp)
-        para el país destino, normalizando por su PIB.
-        pérdida_pp = (exposición / PIB) * 100 * passthrough
-        """
+        """Exposición (millones USD) -> pérdida de capital (pp) del destino."""
         gdp_musd = GDP_BUSD[destino] * 1000.0
         exposicion_pct_pib = (exposure_musd / gdp_musd) * 100.0
         return exposicion_pct_pib * CONTAGION_PASSTHROUGH
 
     def step(self):
-        """Un paso: detectar crisis (capital < 8%) y propagar pérdidas."""
+        """Un paso: detectar crisis (capital < 8%) y propagar por dos canales."""
         newly_in_crisis = [
             c for c in self.countries.values()
             if not c.in_crisis and c.capital < CRISIS_THRESHOLD
         ]
+
         for country in newly_in_crisis:
             country.in_crisis = True
+
+            # Canal 1: contagio bilateral por exposiciones BIS
             for other_name, exposure in country.exposures.items():
                 other = self.countries.get(other_name)
                 if other and not other.in_crisis:
                     perdida_pp = self._contagion_loss_pp(exposure, other_name)
                     other.capital -= perdida_pp
+
+            # Canal 2: contagio por cartera común (portfolio contagion)
+            golpe = PORTFOLIO_CONTAGION_PP.get(country.name, 0.5)
+            for other in self.countries.values():
+                if other.name != country.name and not other.in_crisis:
+                    other.capital -= golpe
+
         return len(newly_in_crisis)
 
     def get_state(self):
@@ -138,14 +165,12 @@ class LACNetwork:
         return self.get_state()
 
     def get_summary(self):
-        """Resumen de una corrida: nro de países en crisis y capital total restante."""
         state = self.get_state()
         n_crisis = sum(1 for v in state.values() if v == "en crisis")
         total_capital = sum(c.capital for c in self.countries.values())
         return {"paises_en_crisis": n_crisis, "capital_total": round(total_capital, 1)}
 
     def build_graph(self):
-        """Construye el grafo para visualización."""
         G = nx.DiGraph()
         for name in COUNTRIES:
             G.add_node(name)
@@ -157,19 +182,14 @@ class LACNetwork:
 
 def run_monte_carlo(n_sims=200, shock_name="Suba de tasas de la Fed",
                     shock_intensity=1.0, bailout=False):
-    """
-    Corre n_sims simulaciones independientes.
-    Cada corrida crea una nueva LACNetwork (que ya incluye ruido estocástico
-    en el impacto del shock), la ejecuta y registra el resumen.
-    Devuelve DataFrame con P5/P50/P95 de países en crisis y capital total.
-    """
+    """Corre n_sims simulaciones con ruido estocástico; devuelve P5/P50/P95."""
     resultados = []
     for _ in range(n_sims):
         net = LACNetwork(
             shock_name=shock_name,
             shock_intensity=shock_intensity,
             bailout=bailout,
-            seed=None,  # sin seed fijo -> aleatoriedad real en cada corrida
+            seed=None,
         )
         net.run()
         resultados.append(net.get_summary())
