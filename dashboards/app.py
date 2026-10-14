@@ -22,9 +22,22 @@ st.sidebar.info(SHOCKS[shock_name]["descripcion"])
 shock_intensity = st.sidebar.slider("Intensidad del shock", 0.5, 2.0, 1.0, 0.1)
 bailout = st.sidebar.checkbox("Activar rescate regional (swap lines / bailout)")
 
+# Ejecutar simulación base y guardar en session_state
 if st.sidebar.button("Ejecutar simulación"):
     model = LACNetwork(shock_name=shock_name, shock_intensity=shock_intensity, bailout=bailout)
     states = model.run()
+    st.session_state["model"] = model
+    st.session_state["states"] = states
+    st.session_state["shock_name"] = shock_name
+    st.session_state["shock_intensity"] = shock_intensity
+    st.session_state["bailout"] = bailout
+
+# Mostrar resultados si hay una simulación en sesión
+if "model" in st.session_state:
+    model = st.session_state["model"]
+    states = st.session_state["states"]
+    shock_name = st.session_state["shock_name"]
+
     G = model.build_graph()
     pos = nx.spring_layout(G, seed=42, k=2)
 
@@ -86,7 +99,7 @@ if st.sidebar.button("Ejecutar simulación"):
         status = "🔴 En crisis" if c.in_crisis else "🟢 Sano"
         st.write(f"**{name}**: {status} — capital restante: {c.capital:.0f}")
 
-    # --- Monte Carlo ---
+    # --- Monte Carlo (usa session_state para no desaparecer) ---
     st.subheader("🎲 Análisis Monte Carlo")
     n_sims = st.slider("Cantidad de simulaciones", 50, 500, 200, step=50)
 
@@ -94,11 +107,15 @@ if st.sidebar.button("Ejecutar simulación"):
         with st.spinner(f"Corriendo {n_sims} simulaciones..."):
             resumen_mc = run_monte_carlo(
                 n_sims=n_sims,
-                shock_name=shock_name,
-                shock_intensity=shock_intensity,
-                bailout=bailout,
+                shock_name=st.session_state["shock_name"],
+                shock_intensity=st.session_state["shock_intensity"],
+                bailout=st.session_state["bailout"],
             )
+        st.session_state["resumen_mc"] = resumen_mc
 
+    # Mostrar resultados de Monte Carlo si existen
+    if "resumen_mc" in st.session_state:
+        resumen_mc = st.session_state["resumen_mc"]
         st.write(f"**Distribución de resultados en {n_sims} simulaciones**")
         st.bar_chart(resumen_mc)
         st.dataframe(resumen_mc.style.format("{:.1f}"))
@@ -108,3 +125,5 @@ if st.sidebar.button("Ejecutar simulación"):
             "- **P50 (mediano):** el escenario típico (mediana)\n"
             "- **P95 (optimista):** en el 95% de los escenarios, el valor fue igual o mejor"
         )
+else:
+    st.info("👈 Configurá el shock en el panel izquierdo y ejecutá la simulación.")
