@@ -1,6 +1,23 @@
 # Simulador de Riesgo Sistémico y Contagio Financiero en América Latina
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://rojolimh-byte-simulador-crisis-financiera.streamlit.app/)
+
 Modelo **agent-based** de riesgo sistémico: una red de países LAC interconectados donde shocks globales (Fed, commodities, clima) pueden propagarse y desencadenar crisis en cascada, con decisiones endógenas de política por país.
+
+## Resultados de ejemplo
+
+Escenario: **Suba de tasas de la Fed, intensidad 3.0** (sin rescate regional).
+
+| País | Estado | Capital restante | Decisión del agente |
+|---|---|---|---|
+| Argentina | 🔴 En crisis | bajo cero | 🆘 Pidió rescate (reservas insuficientes) |
+| Colombia | 🔴 En crisis | ~3 | 🆘 Pidió rescate |
+| Brasil | 🟢 Sano | ~10 | 📉 Fire sale o ⏸️ Mantuvo |
+| México | 🟢 Sano | ~15 | ⏸️ Mantuvo |
+| Chile | 🟢 Sano | ~13 | 📉 Fire sale o ⏸️ Mantuvo |
+| Perú | 🟢 Sano | ~9 | 📉 Fire sale o ⏸️ Mantuvo |
+
+> Los valores exactos varían entre corridas por el ruido estocástico del modelo. Ejecutá la app para ver el resultado en vivo.
 
 ## Qué hace
 
