@@ -14,7 +14,7 @@ from src.lac_model import LACNetwork, SHOCKS, COUNTRIES, run_monte_carlo
 
 st.set_page_config(page_title="Riesgo Sistémico LAC", layout="wide")
 st.title("🌎 Simulador de Riesgo Sistémico en América Latina")
-st.markdown("Modelo de contagio financiero entre países LAC, con shocks globales (Fed, commodities, guerra, clima).")
+st.markdown("Modelo agent-based de contagio financiero entre países LAC, con shocks globales (Fed, commodities, guerra, clima) y decisiones endógenas de política.")
 
 st.sidebar.header("Escenario de shock")
 shock_name = st.sidebar.selectbox("Tipo de shock", list(SHOCKS.keys()))
@@ -94,10 +94,18 @@ if "model" in st.session_state:
         st.success("Ningún país entró en crisis con este shock.")
 
     st.subheader("Detalle por país")
+    acciones = model.get_acciones()
+    etiqueta_accion = {
+        "intervino": "🛡️ Intervino (usó reservas)",
+        "pidio_rescate": "🆘 Pidió rescate",
+        "fire_sale": "📉 Fire sale (redujo exposición)",
+        "mantuvo": "⏸️ Mantuvo",
+    }
     for name in COUNTRIES:
         c = model.countries[name]
         status = "🔴 En crisis" if c.in_crisis else "🟢 Sano"
-        st.write(f"**{name}**: {status} — capital restante: {c.capital:.0f}")
+        accion = etiqueta_accion.get(acciones.get(name, "mantuvo"), "⏸️ Mantuvo")
+        st.write(f"**{name}**: {status} — capital restante: {c.capital:.0f} — {accion}")
 
     # --- Monte Carlo (usa session_state para no desaparecer) ---
     st.subheader("🎲 Análisis Monte Carlo")
