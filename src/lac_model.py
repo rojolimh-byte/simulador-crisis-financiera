@@ -1,20 +1,30 @@
 """
 Simulador de riesgo sistémico y contagio financiero en América Latina.
-Nodos = países. Shocks = eventos globales (Fed, commodities, guerra, clima).
+Nodos = países-agentes. Shocks = eventos globales (Fed, commodities, guerra, clima).
+
+Nivel 5 — Capa de agentes:
+Cada país es un agente con decisiones endógenas:
+- Intervenir: usa reservas para amortiguar el shock (solo si tiene reservas)
+- Pedir rescate: recibe inyección de capital si entra en crisis y hay rescate regional
+- Fire sale: si un vecino entra en crisis, reduce exposición (desarme) lo que
+  amplifica el contagio bilateral (dinámica de retroalimentación)
 
 Calibración basada en datos:
-- Capital: ratios reales FMI FSI — capital regulatorio sobre activos ponderados por riesgo (CAR, % RWA)
+- Capital: ratios reales FMI FSI (CAR, % RWA)
 - Umbral de crisis: 8% (mínimo regulatorio Basilea sobre RWA)
-- Shock directo: 1-4.5 pp, consistente con estrés severo (Fed/ECB/IMF: 2.5-4 pp)
-- Vulnerabilidad diferenciada: multiplicador basado en spreads EMBI (CEPAL, abr-2024)
-- Contagio por cartera común: países sistémicos propagan más al entrar en crisis
-- Contagio bilateral: exposiciones BIS normalizadas por PIB del receptor (FMI WEO 2024)
+- Vulnerabilidad diferenciada: multiplicador basado en spreads EMBI (CEPAL)
+- Contagio bilateral: exposiciones BIS normalizadas por PIB del receptor (FMI WEO)
+- Reservas: meses de importación (FMI WEO) — habilitan la intervención
+
 Incluye análisis Monte Carlo (múltiples corridas con aleatoriedad).
 """
+
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import networkx as nx
+
 from src.data_loader import load_capitals, load_exposures
 
 # Países LAC incluidos en la red
@@ -34,8 +44,22 @@ GDP_BUSD = {
     "Perú": 295.2,
 }
 
+# Reservas internacionales en meses de importación (FMI WEO, ~2024)
+# Habilitan la decisión de intervenir: sin reservas no hay defensa posible.
+RESERVAS_MESES = {
+    "Brasil": 15.0,
+    "México": 12.0,
+    "Argentina": 3.0,
+    "Chile": 14.0,
+    "Colombia": 9.0,
+    "Perú": 14.0,
+}
+
 # Umbral de crisis: mínimo regulatorio de capital (Basilea)
 CRISIS_THRESHOLD = 8.0
+
+# Umbral de alerta: debajo de esto el agente considera intervenir
+ALERT_THRESHOLD = 11.0
 
 # Coeficiente de transmisión del contagio bilateral
 CONTAGION_PASSTHROUGH = 1.0
@@ -63,6 +87,12 @@ PORTFOLIO_CONTAGION_PP = {
     "Colombia": 0.5,
 }
 
+# Amortiguación por intervención: pp de capital que recupera el agente
+INTERVENCION_PP = 1.5
+
+# Amplificación del contagio bilateral cuando el vecino hace fire sale
+FIRE_SALE_MULTIPLIER = 1.5
+
 # Shocks: impacto directo base en puntos porcentuales del CAR.
 SHOCKS = {
     "Suba de tasas de la Fed": {
@@ -84,18 +114,62 @@ SHOCKS = {
 }
 
 
-class Country:
-    """Un país en la red financiera LAC."""
+class CountryAgent:
+    """Un país-agente: observa la red, decide y actúa."""
 
-    def __init__(self, name, capital, exposures):
+    def __init__(self, name, capital, exposures, reservas_meses):
         self.name = name
-        self.capital = capital          # capital regulatorio (CAR, % RWA)
-        self.exposures = exposures      # dict {destino: exposicion en millones USD}
+        self.capital = capital              # capital regulatorio (CAR, % RWA)
+        self.exposures = dict(exposures)    # dict {destino: exposicion en millones USD}
+        self.reservas_meses = reservas_meses
         self.in_crisis = False
+        self.intervino = False
+        self.pidio_rescate = False
+        self.hizo_fire_sale = False
+        self._accion = "mantuvo"
+
+    @property
+    def accion(self) -> str:
+        """Última decisión tomada (para trazabilidad en la UI)."""
+        return self._accion
+
+    def decidir(self, vecinos_en_crisis: int) -> str:
+        """
+        Decisión endógena según el estado propio y de la red:
+        - En crisis y con reservas: interviene (recupera capital, gasta reservas)
+        - En crisis sin reservas: pide rescate
+        - Vecino en crisis y exposición alta: fire sale (reduce exposición,
+          lo que amplifica el contagio hacia otros)
+        - Si no: mantiene
+        """
+        if self.in_crisis and not self.intervino and self.reservas_meses >= 5.0:
+            self._accion = "intervino"
+            self.capital += INTERVENCION_PP
+            self.reservas_meses -= 2.0
+            self.intervino = True
+            return self._accion
+
+        if self.in_crisis and not self.intervino:
+            self._accion = "pidio_rescate"
+            self.pidio_rescate = True
+            return self._accion
+
+        if vecinos_en_crisis > 0 and not self.in_crisis and not self.hizo_fire_sale:
+            exposicion_total = sum(self.exposures.values())
+            if exposicion_total > 0:
+                self._accion = "fire_sale"
+                # Reduce 30% de su exposición total (desarme)
+                for destino in list(self.exposures.keys()):
+                    self.exposures[destino] *= 0.7
+                self.hizo_fire_sale = True
+                return self._accion
+
+        self._accion = "mantuvo"
+        return self._accion
 
 
 class LACNetwork:
-    """Red de países LAC con contagio financiero y shocks globales."""
+    """Red de países-agentes LAC con contagio financiero, decisiones y shocks globales."""
 
     def __init__(self, shock_name, shock_intensity=1.0, bailout=False, seed=None):
         if seed is not None:
@@ -107,7 +181,12 @@ class LACNetwork:
 
         self.countries = {}
         for name in COUNTRIES:
-            self.countries[name] = Country(name, CAPITAL[name], EXPOSURES.get(name, {}))
+            self.countries[name] = CountryAgent(
+                name,
+                CAPITAL[name],
+                EXPOSURES.get(name, {}),
+                RESERVAS_MESES[name],
+            )
 
         # Shock directo: impacto base × vulnerabilidad macro × intensidad × ruido
         shock = SHOCKS[shock_name]
@@ -123,39 +202,71 @@ class LACNetwork:
             for c in self.countries.values():
                 c.capital += 2.0
 
-    def _contagion_loss_pp(self, exposure_musd, destino):
+    def _contagion_loss_pp(self, exposure_musd, destino, fire_sale_activo=False):
         """Exposición (millones USD) -> pérdida de capital (pp) del destino."""
         gdp_musd = GDP_BUSD[destino] * 1000.0
         exposicion_pct_pib = (exposure_musd / gdp_musd) * 100.0
-        return exposicion_pct_pib * CONTAGION_PASSTHROUGH
+        perdida = exposicion_pct_pib * CONTAGION_PASSTHROUGH
+        if fire_sale_activo:
+            perdida *= FIRE_SALE_MULTIPLIER
+        return perdida
 
     def step(self):
-        """Un paso: detectar crisis (capital < 8%) y propagar por dos canales."""
+        """Un paso: decisiones de agentes, detección de crisis y propagación."""
+        # 1. Crisis: capital < umbral
         newly_in_crisis = [
             c for c in self.countries.values()
             if not c.in_crisis and c.capital < CRISIS_THRESHOLD
         ]
-
         for country in newly_in_crisis:
             country.in_crisis = True
 
-            # Canal 1: contagio bilateral por exposiciones BIS
+        # 2. Decisiones de agentes (observan la red)
+        for country in self.countries.values():
+            vecinos_en_crisis = sum(
+                1 for destino in country.exposures
+                if destino in self.countries and self.countries[destino].in_crisis
+            )
+            country.decidir(vecinos_en_crisis)
+
+        # 3. Contagio bilateral por exposiciones (con fire sale si corresponde)
+        for country in self.countries.values():
+            if not country.in_crisis:
+                continue
+            fire_sale = country.hizo_fire_sale
             for other_name, exposure in country.exposures.items():
                 other = self.countries.get(other_name)
                 if other and not other.in_crisis:
-                    perdida_pp = self._contagion_loss_pp(exposure, other_name)
+                    perdida_pp = self._contagion_loss_pp(exposure, other_name, fire_sale)
                     other.capital -= perdida_pp
 
-            # Canal 2: contagio por cartera común (portfolio contagion)
+        # 4. Contagio por cartera común (portfolio contagion)
+        for country in self.countries.values():
+            if not country.in_crisis:
+                continue
             golpe = PORTFOLIO_CONTAGION_PP.get(country.name, 0.5)
             for other in self.countries.values():
                 if other.name != country.name and not other.in_crisis:
                     other.capital -= golpe
 
+        # 5. Rescate a quien lo pidió (si el rescate regional está activo)
+        if self.bailout:
+            for country in self.countries.values():
+                if country.pidio_rescate and country.in_crisis:
+                    country.capital += 2.0
+                    country.pidio_rescate = False
+
         return len(newly_in_crisis)
 
     def get_state(self):
-        return {name: ("sano" if not c.in_crisis else "en crisis") for name, c in self.countries.items()}
+        return {
+            name: ("sano" if not c.in_crisis else "en crisis")
+            for name, c in self.countries.items()
+        }
+
+    def get_acciones(self):
+        """Devuelve la última decisión de cada agente (para trazabilidad)."""
+        return {name: c.accion for name, c in self.countries.items()}
 
     def run(self, max_steps=20):
         for _ in range(max_steps):
@@ -168,7 +279,10 @@ class LACNetwork:
         state = self.get_state()
         n_crisis = sum(1 for v in state.values() if v == "en crisis")
         total_capital = sum(c.capital for c in self.countries.values())
-        return {"paises_en_crisis": n_crisis, "capital_total": round(total_capital, 1)}
+        return {
+            "paises_en_crisis": n_crisis,
+            "capital_total": round(total_capital, 1),
+        }
 
     def build_graph(self):
         G = nx.DiGraph()
