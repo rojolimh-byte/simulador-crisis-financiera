@@ -19,6 +19,21 @@ Escenario: **Suba de tasas de la Fed, intensidad 3.0** (sin rescate regional).
 
 > Los valores exactos varían entre corridas por el ruido estocástico del modelo. Ejecutá la app para ver el resultado en vivo.
 
+## Validación histórica
+
+El modelo se contrasta contra episodios de crisis reales de LAC (`src/validation.py`), comparando los países que predice en crisis contra los que efectivamente entraron en estrés según el registro histórico (FMI, BIS, literatura de crisis).
+
+```bash
+python -m src.validation
+```
+
+Episodios evaluados:
+- **Argentina 2001-02** (crisis de deuda y convertibilidad)
+- **Tensión de mercados emergentes 2018** (taper tantrum II)
+- **Caída de commodities 2014-16** (presión sobre Brasil y Colombia)
+
+Para cada episodio se reportan verdaderos positivos, falsos positivos, falsos negativos y tasa de acierto. Esta validación es un primer backtest; la calibración econométrica formal de los parámetros es trabajo futuro.
+
 ## Qué hace
 
 - Modela 6 países LAC (Brasil, México, Argentina, Chile, Colombia, Perú) como **agentes** en una red financiera
@@ -82,6 +97,13 @@ Y visualiza la red con países sanos (verde) y en crisis (rojo), más la decisi�
 - La **vulnerabilidad macro** usa spreads EMBI reales pero el mapeo a multiplicador es una simplificación
 - El modelo es **estático por ronda** (no hay aprendizaje ni adaptación de estrategias entre simulaciones)
 - No incluye bancos individuales dentro de cada país (agregación a nivel país)
+
+## Trabajo futuro
+
+- Calibración econométrica de los multiplicadores de vulnerabilidad y shocks (regresión sobre crisis históricas)
+- Exposiciones bilaterales reales desde BIS LBS
+- Aprendizaje/adaptación de estrategias de los agentes
+- Desagregación a nivel de bancos individuales
 
 ## Tecnologías
 
